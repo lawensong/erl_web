@@ -1,0 +1,15 @@
+{application, myweb,
+ [
+  {description, "this is a web example"},
+  {vsn, "1"},
+  {modules, []},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib,
+				  cowlib,
+				  ranch
+                 ]},
+  {mod, { myweb_app, []}},
+  {env, []}
+ ]}.
