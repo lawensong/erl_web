@@ -68,6 +68,7 @@ recv(Socket, Transport, Until) ->
 	    Transport:recv(Socket, 0, Timeout)
     end.
 
+-spec parse_request(binary(), #state{}, non_neg_integer())->ok.
 parse_request(<<$\n, _/bits>>, State)->
     error_terminate(400, State);
 parse_request(<< $\s, _/bits >>, State) ->
