@@ -6,8 +6,8 @@
 	  transport:: module(),
 	  middlewares:: [module()],
 	  compress:: boolean(),
-	  env:: cowboy_middleware:env(),
-	  onresponse = undefined :: undefined | cowboy:onresponse_fun(),
+	  env:: any(),
+	  onresponse :: any(),
 	max_empty_lines :: non_neg_integer(),
 	req_keepalive = 1 :: non_neg_integer(),
 	max_keepalive :: non_neg_integer(),
@@ -17,9 +17,8 @@
 	max_headers :: non_neg_integer(),
 	timeout :: timeout(),
 	until :: non_neg_integer() | infinity
-})
+}).
 
--spec start_link(ranch:ref(), inet:socket(), module(), opts()) -> {ok, pid()}.
 start_link(Ref, Socket, Transport, Opts)->
     Pid = spawn_link(?MODULE, init, [Ref, Socket, Transport, Opts]),
     {ok, Pid}.
@@ -30,8 +29,8 @@ init(Ref, Socket, Transport, Opts)->
     Until = until(Timeout),
     log4erl:info("init stat..."),
     log4erl:info("timeout is ~p", [Timeout]),
-    %%loop(Socket, Transport, Opts).
-    case recv(Socket, Transport, Uutil) of
+
+    case recv(Socket, Transport, Until) of
 	{ok, Data}->
 	    OnFirstRequest = get_value(onfirstrequest, Opts, undefined),
 		 case OnFirstRequest of
@@ -69,14 +68,85 @@ recv(Socket, Transport, Until) ->
 	    Transport:recv(Socket, 0, Timeout)
     end.
 
--spec parse_request(binary(), #state{}, non_neg_integer())->ok.
-parse_request(<<$\n, _/bits>>, State)->
+
+parse_request(<<$\n, _/bits>>, State, _)->
     error_terminate(400, State);
-parse_request(<< $\s, _/bits >>, State) ->
+parse_request(<< $\s, _/bits >>, State, _) ->
     error_terminate(400, State);
-parse_request(Buffer, State=#state{max_request_line_length=MaxLength,
-		max_empty_lines=MaxEmpty}, ReqEmpty) ->
-    ok.
+parse_request(Buffer, State, ReqEmpty) ->
+    log4erl:info("buffer is ~p", [Buffer]),
+    case match_eol(Buffer, 0) of
+	nomatch->
+	    error_terminate(400, State);
+	N ->
+	    log4erl:info("match eol is ~p", [N]),
+	    parse_method(Buffer, State, <<>>)
+    end.
+
+parse_method(<< C, Rest/bits >>, State, Sofar)->
+    case C of
+	$\r->error_terminate(400, State);
+	$\s ->
+	    log4erl:info("parse method ~p", [Sofar]),
+	    parse_uri(Rest, State, Sofar);
+	_ ->parse_method(Rest, State, <<Sofar/binary, C>>)
+    end.
+
+parse_uri(<<$\r, _/bits>>, State, _)->
+    error_terminate(400, State);
+parse_uri(<<$\s, _/bits>>, State, _) ->
+    error_terminate(400, State);
+parse_uri(<<"* ", Rest/bits>>, State, Methos) ->
+    log4erl:info("parse uri * ~p", [Rest]);
+parse_uri(Buffer, State, Method) ->
+    parse_uri_path(Buffer, State, Method, <<>>).
+
+parse_uri_path(<<C, Rest/bits>>, State, Method, Sofar)->
+    log4erl:info("parse uri path ~p", [C]),
+    case C of
+	$\r->
+	    error_terminate(400, State);
+	$\s ->
+	    log4erl:info("start parser version"),
+	    parse_version(Rest, State, Method, Sofar, <<>>);
+	$? ->
+	    parse_uri_query(Rest, State, Method, Sofar, <<>>);
+	_ ->
+	    parse_uri_path(Rest, State, Method, <<Sofar/binary, C>>)
+    end.
+
+parse_uri_query(<<C, Rest/bits>>, S, M, P, Sofar)->
+    log4erl:info("parse uri query"),
+    case C of
+	$\r->
+	    error_terminate(400, S);
+	$\s ->
+	    parse_version(Rest, S, M, P, Sofar);
+	_ ->
+	    parse_uri_query(Rest, S, M, P, <<Sofar/binary, C>>)
+    end.
+
+parse_version(<<"HTTP/1.1\r\n", Rest/bits>>, S, M, P, Q)->
+    parse_header(Rest, S, M, P, Q, 'HTTP/1.1\r\n', []);
+parse_version(<<"HTTP/1.0\r\n", Rest/bits>>, S, M, P, Q) ->
+    parse_header(Rest, S, M, P, Q, 'HTTP/1.0\r\n', []);
+parse_version(_, State, _, _, _) ->
+    error_terminate(505, State).
+
+parse_header(<<$\r, $\n, Rest/bits>>, S, M, P, Q, V, Headers)->
+    request(Rest, S, M, P, Q, V, lists:reverse(Headers));
+parse_header(B, S, M, P, Q, V, Headers) ->
+    request(B, S,M, P, Q, V, lists:reverse(Headers)).
+
+request(R, State, M, P, Q, Version, Headers)->
+    log4erl:info("request ~p", [R]),
+    log4erl:info("request ~p", [State]),
+    log4erl:info("request ~p", [M]),
+    log4erl:info("request ~p", [P]),
+    log4erl:info("request ~p", [Q]),
+    log4erl:info("request ~p", [Version]),
+    log4erl:info("request ~p", [Headers]).
+
 
 match_eol(<<$\n, _/bits>>, N)->
     N;
@@ -96,25 +166,7 @@ until(infinity)->
 until(Timeout) ->
     erlang:monotonic_time(milli_seconds) + Timeout.
 
-loop(Socket, Transport, Opts)->
-    case Transport:recv(Socket, 0, 5000) of
-	{ok, Data} ->
-	    log4erl:info("loop start..."),
-	    log4erl:info("in one request, opts is ... ~p", [Opts]),
-	    Transport:send(Socket, Data),
-	    loop(Socket, Transport, Opts);
-	_ ->
-	    ok = Transport:close(Socket)
-    end.
-
-error_terminate(Status, State=#state{socket=Socket, transport=Transport,
-		compress=Compress, onresponse=OnResponse}) ->
-	error_terminate(Status, myweb_req:new(Socket, Transport,
-		undefined, <<"GET">>, <<>>, <<>>, 'HTTP/1.1', [], <<>>,
-		undefined, <<>>, false, Compress, OnResponse), State).
-
-error_terminate(Status, Req, State) ->
-	_ = myweb_req:reply(Status, Req),
+error_terminate(_Status, State) ->
 	terminate(State).
 
 terminate(#state{socket=Socket, transport=Transport})->

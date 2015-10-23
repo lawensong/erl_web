@@ -1,0 +1,44 @@
+-module(myweb_req).
+
+-export(new/14).
+
+-record(http_req, {
+	%% Transport.
+	socket = undefined :: any(),
+	transport = undefined :: undefined | module(),
+	connection = keepalive :: keepalive | close,
+
+	%% Request.
+	pid = undefined :: pid(),
+	method = <<"GET">> :: binary(),
+	version = 'HTTP/1.1':: any(),
+	peer = undefined :: undefined | {inet:ip_address(), inet:port_number()},
+	host = undefined :: undefined | binary(),
+	host_info = undefined :: any(),
+	port = undefined :: undefined | inet:port_number(),
+	path = undefined :: binary(),
+	path_info = undefined :: any(),
+	qs = undefined :: binary(),
+	bindings = undefined :: any(),
+	headers = [] :: any(),
+	meta = [] :: [{atom(), any()}],
+
+	%% Request body.
+	body_state = waiting :: any(),
+	buffer = <<>> :: binary(),
+	multipart = undefined :: undefined | {binary(), binary()},
+
+	%% Response.
+	resp_compress = false :: boolean(),
+	resp_state = waiting :: locked | waiting | waiting_stream
+		| chunks | stream | done,
+	resp_headers = [] :: any(),
+	resp_body = <<>> :: any(),
+
+	%% Functions.
+	onresponse = undefined :: any()
+}).
+
+new(Socket, Transport, Peer, Method, Path, Query, Version, 
+   Headers, Host, Port, Buffer, CanKeepalive, Compress, OnResponse)->
+    {ok}.
