@@ -2,12 +2,12 @@
 -export([start_link/4, init/4]).
 
 -record(state, {
-	  socket:: inet:socket(),
-	  transport:: module(),
-	  middlewares:: [module()],
-	  compress:: boolean(),
-	  env:: any(),
-	  onresponse :: any(),
+	socket:: inet:socket(),
+	transport:: module(),
+	middlewares:: [module()],
+	compress:: boolean(),
+	env:: any(),
+	onresponse :: any(),
 	max_empty_lines :: non_neg_integer(),
 	req_keepalive = 1 :: non_neg_integer(),
 	max_keepalive :: non_neg_integer(),
@@ -28,34 +28,33 @@ init(Ref, Socket, Transport, Opts)->
     Timeout = get_value(timeout, Opts, 5000),
     Until = until(Timeout),
     log4erl:info("init stat..."),
-    log4erl:info("timeout is ~p", [Timeout]),
 
     case recv(Socket, Transport, Until) of
-	{ok, Data}->
-	    OnFirstRequest = get_value(onfirstrequest, Opts, undefined),
-		 case OnFirstRequest of
-		      undefined -> ok;
-		      _ -> OnFirstRequest(Ref, Socket, Transport, Opts)
-		 end,
-	    Compress = get_value(compress, Opts, false),
-	    MaxEmptyLines = get_value(max_empty_lines, Opts, 5),
-	    MaxHeaderNameLength = get_value(max_header_name_length, Opts, 64),
-	    MaxHeaderValueLength = get_value(max_header_value_length, Opts, 4096),
-	    MaxHeaders = get_value(max_headers, Opts, 100),
-	    MaxKeepalive = get_value(max_keepalive, Opts, 100),
-	    MaxRequestLineLength = get_value(max_request_line_length, Opts, 4096),
-	    Middlewares = get_value(middlewares, Opts, [cowboy_router, cowboy_handler]),
-	    Env = [{listener, Ref}|get_value(env, Opts, [])],
-	    OnResponse = get_value(onresponse, Opts, undefined),
-	    parse_request(Data, #state{socket=Socket, transport=Transport,
-				middlewares=Middlewares, compress=Compress, env=Env,
-				max_empty_lines=MaxEmptyLines, max_keepalive=MaxKeepalive,
-				max_request_line_length=MaxRequestLineLength,
-				max_header_name_length=MaxHeaderNameLength,
-				max_header_value_length=MaxHeaderValueLength, max_headers=MaxHeaders,
-				onresponse=OnResponse, timeout=Timeout, until=Until}, 0);
-	{error, _} ->
-	    terminate(#state{socket=Socket, transport=Transport})
+			{ok, Data}->
+					OnFirstRequest = get_value(onfirstrequest, Opts, undefined),
+				 case OnFirstRequest of
+							undefined -> ok;
+							_ -> OnFirstRequest(Ref, Socket, Transport, Opts)
+				 end,
+					Compress = get_value(compress, Opts, false),
+					MaxEmptyLines = get_value(max_empty_lines, Opts, 5),
+					MaxHeaderNameLength = get_value(max_header_name_length, Opts, 64),
+					MaxHeaderValueLength = get_value(max_header_value_length, Opts, 4096),
+					MaxHeaders = get_value(max_headers, Opts, 100),
+					MaxKeepalive = get_value(max_keepalive, Opts, 100),
+					MaxRequestLineLength = get_value(max_request_line_length, Opts, 4096),
+					Middlewares = get_value(middlewares, Opts, [cowboy_router, cowboy_handler]),
+					Env = [{listener, Ref}|get_value(env, Opts, [])],
+					OnResponse = get_value(onresponse, Opts, undefined),
+					parse_request(Data, #state{socket=Socket, transport=Transport,
+						middlewares=Middlewares, compress=Compress, env=Env,
+						max_empty_lines=MaxEmptyLines, max_keepalive=MaxKeepalive,
+						max_request_line_length=MaxRequestLineLength,
+						max_header_name_length=MaxHeaderNameLength,
+						max_header_value_length=MaxHeaderValueLength, max_headers=MaxHeaders,
+						onresponse=OnResponse, timeout=Timeout, until=Until}, 0);
+			{error, _} ->
+					terminate(#state{socket=Socket, transport=Transport})
     end.
 
 recv(Socket, Transport, infinity)->
@@ -63,9 +62,9 @@ recv(Socket, Transport, infinity)->
 recv(Socket, Transport, Until) ->
     Timeout = Until - erlang:monotonic_time(milli_seconds),
     if Timeout<0 ->
-	    {error, timeout};
+	    	{error, timeout};
        true ->
-	    Transport:recv(Socket, 0, Timeout)
+	    	Transport:recv(Socket, 0, Timeout)
     end.
 
 
@@ -76,11 +75,11 @@ parse_request(<< $\s, _/bits >>, State, _) ->
 parse_request(Buffer, State, ReqEmpty) ->
     log4erl:info("buffer is ~p", [Buffer]),
     case match_eol(Buffer, 0) of
-	nomatch->
-	    error_terminate(400, State);
-	N ->
-	    log4erl:info("match eol is ~p", [N]),
-	    parse_method(Buffer, State, <<>>)
+			nomatch->
+					error_terminate(400, State);
+			N ->
+					log4erl:info("match eol is ~p", [N]),
+					parse_method(Buffer, State, <<>>)
     end.
 
 parse_method(<< C, Rest/bits >>, State, Sofar)->
@@ -138,15 +137,31 @@ parse_header(<<$\r, $\n, Rest/bits>>, S, M, P, Q, V, Headers)->
 parse_header(B, S, M, P, Q, V, Headers) ->
     request(B, S,M, P, Q, V, lists:reverse(Headers)).
 
-request(R, State, M, P, Q, Version, Headers)->
-    log4erl:info("request ~p", [R]),
-    log4erl:info("request ~p", [State]),
-    log4erl:info("request ~p", [M]),
-    log4erl:info("request ~p", [P]),
-    log4erl:info("request ~p", [Q]),
-    log4erl:info("request ~p", [Version]),
-    log4erl:info("request ~p", [Headers]).
+request(Buffer, State=#state{transport = Transport}, M, P, Q, Version, Headers)->
+	request(Buffer, State, M, P, Q, Version, Headers, <<>>, default_port(Transport:name())).
 
+default_port(ssl) -> 443;
+default_port(_) -> 80.
+
+request(Buffer, State=#state{socket=Socket, transport=Transport,
+	req_keepalive=ReqKeepalive, max_keepalive=MaxKeepalive,
+	compress=Compress, onresponse=OnResponse},
+		Method, Path, Query, Version, Headers, Host, Port)->
+	case Transport:peername(Socket) of
+		{ok, Peer}->
+			Req = myweb_req:new(Socket, Transport, Peer, Method, Path,
+				Query, Version, Headers, Host, Port, Buffer,
+				ReqKeepalive < MaxKeepalive, Compress, OnResponse),
+			execute(Req, State);
+		{error, _}->
+			terminate(State)
+	end.
+
+execute(Req, State=#state{middlewares = Middlewares, env=Env})->
+	execute(Req, State, Env, Middlewares).
+
+execute(Req, State, Env, [Middlewares|Tail])->
+	myweb_req:reply(Req, State).
 
 match_eol(<<$\n, _/bits>>, N)->
     N;
@@ -157,8 +172,8 @@ match_eol(_, _) ->
 
 get_value(Key, Opts, Default)->
     case lists:keyfind(Key, 1, Opts) of
-	{_, Value} -> Value;
-	_ -> Default
+			{_, Value} -> Value;
+			_ -> Default
     end.
 
 until(infinity)->

@@ -1,6 +1,7 @@
 -module(myweb_req).
 
--export(new/14).
+-export([new/14]).
+-export([reply/2]).
 
 -record(http_req, {
 	%% Transport.
@@ -39,26 +40,26 @@
 	onresponse = undefined :: any()
 }).
 
-new(Socket, Transport, Peer, Method, Path, Query, Version, 
+new(Socket, Transport, Peer, Method, Path, Query, Version,
    Headers, Host, Port, Buffer, CanKeepalive, Compress, OnResponse)->
     Req = #http_req{socket=Socket, transport=Transport, pid=self(), peer=Peer,
 		method=Method, path=Path, qs=Query, version=Version,
 		headers=Headers, host=Host, port=Port, buffer=Buffer,
 		resp_compress=Compress, onresponse=OnResponse},
-    case CanKeepalive of 
-	false->
-	    Req#http_req{connection=close};
-	true ->
-	    Req#http_req{connection=close}
+    case CanKeepalive of
+			false->
+					Req#http_req{connection=close};
+			true ->
+					Req#http_req{connection=close}
     end.
 
 
-reply(Status, Req=#http_req{resp_body=Body})->
-    reply(Status, [], Body, Req).
+reply(State=#http_req{transport = Transport, socket = Socket}, Req)->
+	Transport:send(Socket, "this is a test").
 
 reply(Status, Headers, Body, Req=#http_req{
 		socket=Socket, transport=Transport,
 		version=Version, connection=Connection,
 		method=Method, resp_compress=Compress,
 		resp_state=RespState, resp_headers=RespHeaders})->
-    Req3#http_req{resp_state=done, resp_headers=[], resp_body= <<>>}.
+    #http_req{resp_state=done, resp_headers=[], resp_body= <<>>}.
